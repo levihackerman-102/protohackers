@@ -28,7 +28,14 @@ def service_connection(key, mask):
     sock = key.fileobj
     data = key.data
     if mask & selectors.EVENT_READ:
-        recv_data = sock.recv(4096)  # Should be ready to read
+        recv_data = b""
+        
+        while True:
+            try:
+                recv_data += sock.recv(1024)  # Should be ready to read
+            except BlockingIOError:
+                break
+        
         if recv_data:
             data.outb += recv_data
         else:
