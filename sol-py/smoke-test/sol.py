@@ -5,8 +5,8 @@ import selectors
 
 sel = selectors.DefaultSelector()
 
-HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
-PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
+HOST = "0.0.0.0"  # Standard loopback interface address (localhost)
+PORT = 8000  # Port to listen on (non-privileged ports are > 1023)
 
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -28,7 +28,7 @@ def service_connection(key, mask):
     sock = key.fileobj
     data = key.data
     if mask & selectors.EVENT_READ:
-        recv_data = sock.recv(1024)  # Should be ready to read
+        recv_data = sock.recv(4096)  # Should be ready to read
         if recv_data:
             data.outb += recv_data
         else:
