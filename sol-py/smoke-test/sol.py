@@ -14,6 +14,7 @@ lsock.bind((HOST, PORT))
 lsock.listen(5)
 print(f"Listening on {HOST}:{PORT}")
 lsock.setblocking(False)
+lsock.send
 sel.register(lsock, selectors.EVENT_READ, data=None)
 
 def accept_wrapper(sock: socket.socket):
@@ -27,21 +28,21 @@ def accept_wrapper(sock: socket.socket):
 def service_connection(key, mask):
     sock = key.fileobj
     data = key.data
+    
     if mask & selectors.EVENT_READ:
         recv_data = b""
-        
         while True:
             try:
                 recv_data += sock.recv(1024)  # Should be ready to read
             except BlockingIOError:
                 break
-        
         if recv_data:
             data.outb += recv_data
         else:
             print(f"Closing connection to {data.addr}")
             sel.unregister(sock)
             sock.close()
+    
     if mask & selectors.EVENT_WRITE:
         if data.outb:
             print(f"Echoing {data.outb!r} to {data.addr}")

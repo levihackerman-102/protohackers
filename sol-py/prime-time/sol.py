@@ -1,78 +1,48 @@
-import socket
-import types
-import selectors
+import asyncio
 import json
-import numbers
+import logging
 import sympy
 
-sel = selectors.DefaultSelector()
+HOST = "0.0.0.0"
+PORT = 8000
 
-HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
-PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
+async def handle(r: asyncio.StreamReader, w: asyncio.StreamWriter):
+    def dump(dat):
+        w.write(json.dumps(dat).encode("utf8"))
+        w.write(b"\n")
 
-lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-lsock.bind((HOST, PORT))
-lsock.listen(5)
-print(f"Listening on {HOST}:{PORT}")
-lsock.setblocking(False)
-sel.register(lsock, selectors.EVENT_READ, data=None)
-
-def check(req: bytes):
-    # req_str = req.decode("utf-8")
-    try:
-        req_obj = json.loads(req)
-    except:
-        return b'{"error":"Malformed request"}'
-    
-    if not "method" in req_obj.keys() or not "number" in req_obj.keys():
-        return b'{"error":"Malformed request"}'
-        
-    if not req_obj["method"] == "isPrime" or not isinstance(req_obj["number"], numbers.Number):
-        return b'{"error":"Malformed request"}'
-    
-    if sympy.isprime(req_obj["number"]):
-        return b'{"method":"isPrime","prime":true}'
-    else:
-        return b'{"method":"isPrime","prime":false}'
-
-def accept_wrapper(sock: socket.socket):
-    (conn, addr) = sock.accept()  # Should be ready to read
-    print(f"Accepted connection from {addr}")
-    conn.setblocking(False)
-    data = types.SimpleNamespace(addr=addr, inb=b"", outb=b"")
-    events = selectors.EVENT_READ | selectors.EVENT_WRITE
-    sel.register(conn, events, data=data)
-    
-def service_connection(key, mask):
-    sock = key.fileobj
-    data = key.data
-    if mask & selectors.EVENT_READ:
-        recv_data = sock.recv(1024)  # Should be ready to read
-        if recv_data:
-            print(recv_data)
-            resp = check(recv_data)
-            data.outb += resp
-        else:
-            print(f"Closing connection to {data.addr}")
-            sel.unregister(sock)
-            sock.close()
-    if mask & selectors.EVENT_WRITE:
-        if data.outb:
-            print(f"Echoing {data.outb!r} to {data.addr}")
-            sent = sock.send(data.outb)  # Should be ready to write
-            data.outb = data.outb[sent:]
-
-try:
-    while True:
-        events = sel.select(timeout=None)
-        for key, mask in events:
-            if key.data is None:
-                accept_wrapper(key.fileobj)
+    while not r.at_eof():
+        try:
+            data_json = json.loads((await r.readuntil(b"\n")).decode("utf8"))
+            logging.debug(f"Request: {data_json}")
+            method = data_json["method"]
+            number = data_json["number"]
+            if method != "isPrime":
+                raise ValueError()
+            if type(number) == int:
+                dump({"method": method, "prime": sympy.isprime(number)})
+            elif type(number) == float:
+                dump({"method": method, "prime": False})
             else:
-                service_connection(key, mask)
-except KeyboardInterrupt:
-    print("Caught keyboard interrupt, exiting")
-finally:
-    sel.close()
-  
+                raise ValueError()
+        except asyncio.LimitOverrunError:
+            dump({"error": "limit_overrun"})
+            break
+        except asyncio.IncompleteReadError:
+            dump({"error": "invalid_terminator"})
+            break
+        except (ValueError, KeyError):
+            dump({"error": "invalid_json"})
+            break
+    await w.drain()
+    w.close()
+
+async def main():
+    logging.basicConfig(level=logging.DEBUG)
+    server = await asyncio.start_server(handle, HOST, PORT)
+    logging.info("Server Ready.")
+    async with server:
+        await server.serve_forever()
+
+if __name__ == "__main__":
+    asyncio.run(main())
